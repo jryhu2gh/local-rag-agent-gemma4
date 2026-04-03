@@ -36,3 +36,4 @@ MAX_TURNS = 10            # max tool-call iterations before forcing a final answ
 TEMPERATURE = 0.7
 MAX_TOKENS = 2048
 CONTEXT_SIZE = 8192       # llama-server context window
+MAX_CRAWL_PAGES = 50      # hard cap on pages per crawl_website call
