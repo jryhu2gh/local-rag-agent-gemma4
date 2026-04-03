@@ -1,0 +1,12 @@
+# Model files
+*.gguf
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated indexes (rebuilt via ingest.py)
+index_data/
+
+# Sample documents (user-specific)
+documents/
