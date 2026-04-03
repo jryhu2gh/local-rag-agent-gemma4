@@ -1,22 +1,24 @@
+import os
 from pathlib import Path
 
 # Base directory
 BASE_DIR = Path(__file__).parent
 
 # Server endpoints (local llama-server instances)
-CHAT_BASE_URL = "http://localhost:8080/v1"
-EMBED_BASE_URL = "http://localhost:8081/v1"
+CHAT_BASE_URL = os.environ.get("CHAT_BASE_URL", "http://localhost:8080/v1")
+EMBED_BASE_URL = os.environ.get("EMBED_BASE_URL", "http://localhost:8081/v1")
 CHAT_MODEL = "gemma4"
 EMBED_MODEL = "embeddinggemma"
 
 # Paths
-DOCUMENTS_DIR = BASE_DIR / "documents"
-INDEX_DIR = BASE_DIR / "index_data"
+DOCUMENTS_DIR = Path(os.environ.get("DOCUMENTS_DIR", BASE_DIR / "documents"))
+INDEX_DIR = Path(os.environ.get("INDEX_DIR", BASE_DIR / "index_data"))
 
-# llama.cpp paths
-LLAMA_DIR = Path.home() / "local-llm" / "llama.cpp"
+# llama.cpp paths (override via env vars if installed elsewhere)
+LLAMA_DIR = Path(os.environ.get("LLAMA_DIR", Path.home() / "local-llm" / "llama.cpp"))
 LLAMA_SERVER = LLAMA_DIR / "build" / "bin" / "llama-server"
-CHAT_MODEL_PATH = Path.home() / "local-llm" / "gemma4" / "gemma-4-26B-A4B-it-Q4_K_M.gguf"
+CHAT_MODEL_PATH = Path(os.environ.get("CHAT_MODEL_PATH", Path.home() / "local-llm" / "gemma4" / "gemma-4-26B-A4B-it-Q4_K_M.gguf"))
+EMBED_MODEL_PATH = Path(os.environ.get("EMBED_MODEL_PATH", Path.home() / "local-llm" / "gemma4" / "embeddinggemma-300M-qat-Q4_0.gguf"))
 CHAT_TEMPLATE_PATH = LLAMA_DIR / "models" / "templates" / "gemma4.jinja"
 
 # RAG parameters

@@ -3,11 +3,11 @@
 # Chat server on :8080 (Gemma 4), Embedding server on :8081 (EmbeddingGemma).
 # Usage: ./start_servers.sh [chat|embed|both]   (default: both)
 
-LLAMA_DIR=~/local-llm/llama.cpp
+LLAMA_DIR=${LLAMA_DIR:-~/local-llm/llama.cpp}
 SERVER=$LLAMA_DIR/build/bin/llama-server
-MODEL=~/local-llm/gemma4/gemma-4-26B-A4B-it-Q4_K_M.gguf
+MODEL=${CHAT_MODEL_PATH:-~/local-llm/gemma4/gemma-4-26B-A4B-it-Q4_K_M.gguf}
 TEMPLATE=$LLAMA_DIR/models/templates/gemma4.jinja
-EMBED_MODEL=~/local-llm/gemma4/embeddinggemma-300M-qat-Q4_0.gguf
+EMBED_MODEL=${EMBED_MODEL_PATH:-~/local-llm/gemma4/embeddinggemma-300M-qat-Q4_0.gguf}
 
 MODE=${1:-both}
 
