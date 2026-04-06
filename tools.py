@@ -9,9 +9,31 @@ from rag.chunker import chunk_text
 from rag.embedder import embed
 from rag.hybrid import hybrid_search
 from rag.index import VectorIndex
+import history as history_module
 
 # OpenAI-format tool definitions (passed to the API)
 TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_history",
+            "description": (
+                "Search past conversations for previously discussed topics. "
+                "Use this FIRST before other search tools — it may have the answer from a prior session, "
+                "or give hints about which sources or URLs were useful before."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query to find relevant past conversations",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -337,7 +359,12 @@ def _handle_crawl(url: str, max_pages: int = 20) -> str:
 def execute_tool(name: str, arguments: dict) -> str:
     """Dispatch a tool call to the appropriate handler."""
     try:
-        if name == "search_documents":
+        if name == "search_history":
+            results = history_module.search(arguments["query"])
+            if not results:
+                return json.dumps({"results": [], "message": "No relevant past conversations found."})
+            return json.dumps({"results": results}, indent=2)
+        elif name == "search_documents":
             return _handle_search(arguments["query"])
         elif name == "read_document":
             return _handle_read(arguments["doc_id"])

@@ -10,3 +10,7 @@ index_data/
 
 # Sample documents (user-specific)
 documents/
+
+# Chat history (user-specific, persisted across sessions)
+history/
+history_index/

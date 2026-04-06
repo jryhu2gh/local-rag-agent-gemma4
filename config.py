@@ -37,3 +37,7 @@ TEMPERATURE = 0.7
 MAX_TOKENS = 2048
 CONTEXT_SIZE = 8192       # llama-server context window
 MAX_CRAWL_PAGES = 50      # hard cap on pages per crawl_website call
+
+# History
+HISTORY_DIR = Path(os.environ.get("HISTORY_DIR", BASE_DIR / "history"))
+HISTORY_INDEX_DIR = Path(os.environ.get("HISTORY_INDEX_DIR", BASE_DIR / "history_index"))
