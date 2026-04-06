@@ -37,6 +37,7 @@ TEMPERATURE = 0.7
 MAX_TOKENS = 2048
 CONTEXT_SIZE = 8192       # llama-server context window
 MAX_CRAWL_PAGES = 50      # hard cap on pages per crawl_website call
+MAX_SEARCH_RESULTS = 5    # default number of web search results
 
 # History
 HISTORY_DIR = Path(os.environ.get("HISTORY_DIR", BASE_DIR / "history"))

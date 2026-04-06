@@ -10,13 +10,15 @@ from skills.research import DEFINITION as research_def, execute as research_exec
 from skills.read_doc import DEFINITION as read_doc_def, execute as read_doc_exec
 from skills.browse import DEFINITION as browse_def, execute as browse_exec
 from skills.index_site import DEFINITION as index_site_def, execute as index_site_exec
+from skills.web_search import DEFINITION as web_search_def, execute as web_search_exec
 
-SKILL_DEFINITIONS = [research_def, read_doc_def, browse_def, index_site_def]
+SKILL_DEFINITIONS = [research_def, read_doc_def, browse_def, web_search_def, index_site_def]
 
 _DISPATCH = {
     "research": research_exec,
     "read_document": read_doc_exec,
     "browse": browse_exec,
+    "web_search": web_search_exec,
     "index_site": index_site_exec,
 }
 

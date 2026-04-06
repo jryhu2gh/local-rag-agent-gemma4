@@ -6,7 +6,7 @@ These are NOT exposed to the LLM directly — skills orchestrate them.
 import json
 from pathlib import Path
 
-from config import DOCUMENTS_DIR, INDEX_DIR, MAX_CRAWL_PAGES
+from config import DOCUMENTS_DIR, INDEX_DIR, MAX_CRAWL_PAGES, MAX_SEARCH_RESULTS
 from rag.bm25 import BM25Index
 from rag.chunker import chunk_text
 from rag.embedder import embed
@@ -113,6 +113,23 @@ def _extract_links(soup, base_url: str, base_domain: str) -> list[dict]:
             links.append({"url": clean_url, "text": link_text})
 
     return links[:30]
+
+
+def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
+    """Search the web using DuckDuckGo. Returns JSON string with results."""
+    from ddgs import DDGS
+
+    results = DDGS().text(query, max_results=max_results)
+
+    formatted = []
+    for r in results:
+        formatted.append({
+            "title": r.get("title", ""),
+            "url": r.get("href", ""),
+            "snippet": r.get("body", ""),
+        })
+
+    return json.dumps({"query": query, "results": formatted}, indent=2)
 
 
 def browse_website(url: str) -> str:
