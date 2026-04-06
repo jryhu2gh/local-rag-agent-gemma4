@@ -5,7 +5,7 @@ import json
 from openai import OpenAI
 from config import CHAT_BASE_URL, CHAT_MODEL, MAX_TURNS, TEMPERATURE, MAX_TOKENS
 from prompts import SYSTEM_PROMPT
-from tools import TOOL_DEFINITIONS, execute_tool
+from skills import SKILL_DEFINITIONS, execute_skill
 import history
 
 _client = OpenAI(base_url=CHAT_BASE_URL, api_key="not-needed")
@@ -30,7 +30,7 @@ def run(user_message: str, conv_history: list[dict]) -> tuple[str, list[dict]]:
             response = _client.chat.completions.create(
                 model=CHAT_MODEL,
                 messages=messages,
-                tools=TOOL_DEFINITIONS,
+                tools=SKILL_DEFINITIONS,
                 temperature=TEMPERATURE,
                 max_tokens=MAX_TOKENS,
             )
@@ -78,8 +78,8 @@ def run(user_message: str, conv_history: list[dict]) -> tuple[str, list[dict]]:
                 tool_args = {}
                 print(f"  [Warning: could not parse args for {tool_name}]")
 
-            print(f"  -> Calling tool: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:100]})")
-            result = execute_tool(tool_name, tool_args)
+            print(f"  -> Calling skill: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:100]})")
+            result = execute_skill(tool_name, tool_args)
 
             tool_msg = {
                 "role": "tool",

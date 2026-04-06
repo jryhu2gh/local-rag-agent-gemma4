@@ -1,6 +1,8 @@
 # Local RAG Agent with Gemma 4
 
-A tool-calling research agent that runs **entirely locally** on your machine. It searches a local document collection using hybrid search (BM25 keyword matching + semantic embeddings) and answers questions with cited sources.
+A skills-based research agent that runs **entirely locally** on your machine. It searches a local document collection using hybrid search (BM25 keyword matching + semantic embeddings), browses the web, and answers questions with cited sources.
+
+Uses a **skills architecture**: the LLM picks a high-level skill (e.g., `research`, `browse`), and the skill's Python code orchestrates the underlying operations deterministically — reducing LLM cognitive load and improving reliability.
 
 Built with:
 - **Gemma 4 26B-A4B** (MoE, only 4B params active per inference) via llama.cpp
@@ -87,7 +89,7 @@ Then ask questions:
 ```
 You: What is Rust's approach to memory safety?
 
-  -> Calling tool: search_documents({"query": "Rust memory safety"})
+  -> Calling skill: research({"query": "Rust memory safety"})
 
 Agent: Rust achieves memory safety without garbage collection through its
 ownership system with compile-time borrow checking...
@@ -116,11 +118,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 ┌─────────────┐     ┌──────────────────────────┐
 │  You (REPL) │────>│  Python Agent (agent.py)  │
 └─────────────┘     │  - system prompt          │
-                    │  - agent loop              │
-                    │  - tool dispatch           │
+                    │  - skill dispatch          │
                     └────┬──────────┬────────────┘
                          │          │
-              tool calls │          │ embeddings
+              skill calls│          │ embeddings
                          v          v
                ┌──────────┐  ┌──────────┐
                │ llama-   │  │ llama-   │
@@ -131,11 +132,20 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
                └──────────┘  └──────────┘
 ```
 
+## Skills
+
+| Skill | What it does |
+|-------|-------------|
+| `research` | Searches past conversations then indexed documents (tiered retrieval via RRF hybrid search) |
+| `read_document` | Reads the full text of a specific document from a prior search result |
+| `browse` | Fetches a web page and returns its content plus links for follow-up |
+| `index_site` | Crawls a website via BFS, saves pages locally, and indexes them for future research |
+
 ## How it works
 
 1. You ask a question
-2. The agent sends it to Gemma 4 with tool definitions
-3. Gemma decides to call `search_documents` → hybrid search (BM25 + embeddings merged via Reciprocal Rank Fusion)
-4. Results are fed back to Gemma
-5. Gemma may call `read_document` for more context or `summarize_text` for long documents
-6. Gemma synthesizes a final answer with citations
+2. The agent sends it to Gemma 4 with skill definitions
+3. Gemma picks a skill (e.g., `research`) — one decision per turn
+4. The skill's Python code orchestrates internal operations (search history → search documents → combine results)
+5. Results are fed back to Gemma
+6. Gemma may call another skill (e.g., `read_document` for more detail) or synthesize a final answer with citations

@@ -1,11 +1,11 @@
 # RAG Agent with Local Gemma 4 — Architecture & Implementation Plan
 
 > Created: 2026-04-03
-> Status: Design complete, implementation pending
+> Status: Skills-based architecture (v2)
 
 ## Overview
 
-A **tool-calling Research/RAG agent** in Python that runs entirely locally on an M3 Pro Mac (36GB RAM), powered by Gemma 4 26B-A4B via llama.cpp. The agent searches a local document collection and answers questions using retrieved context.
+A **skills-based Research/RAG agent** in Python that runs entirely locally on an M3 Pro Mac (36GB RAM), powered by Gemma 4 26B-A4B via llama.cpp. The agent uses a skills architecture: the LLM picks a high-level skill, and the skill's Python code orchestrates the underlying operations deterministically.
 
 Prompt design inspired by [Claude Code's modular prompt patterns](https://github.com/Piebald-AI/claude-code-system-prompts).
 
@@ -40,14 +40,18 @@ Prompt design inspired by [Claude Code's modular prompt patterns](https://github
 - **Embedding server (port 8081)**: EmbeddingGemma 300M (auto-downloaded via `--embd-gemma-default`)
   - Flags: `--embd-gemma-default --embeddings --port 8081`
 
-### Python Agent
+### Python Agent (Skills Architecture)
 
-Uses the `openai` Python SDK pointed at localhost. The agent loop:
+Uses the `openai` Python SDK pointed at localhost. Skills are presented as "tools" via the OpenAI API, but each skill orchestrates multiple internal operations:
+
 1. User sends a question
-2. LLM receives system prompt + conversation + tool definitions
-3. LLM returns either a text response (done) or tool_calls
-4. Agent executes the tool, feeds result back as `role: "tool"` message
-5. Repeat from step 3 until text response or MAX_TURNS reached
+2. LLM receives system prompt + conversation + skill definitions
+3. LLM picks a skill (e.g., `research`) — this is the only LLM decision per turn
+4. Agent calls the skill's Python `execute()` function, which deterministically runs internal operations (search history, search docs, etc.)
+5. Skill result goes back as `role: "tool"` message
+6. Repeat from step 3 until text response or MAX_TURNS reached
+
+**Why skills over direct tools**: The LLM makes one high-level decision instead of managing multi-step orchestration. Tiered retrieval, BFS crawling, and other workflows are handled by deterministic Python code — more reliable, more testable.
 
 ## File Structure
 
@@ -58,8 +62,14 @@ Uses the `openai` Python SDK pointed at localhost. The agent loop:
 ├── requirements.txt      # openai, numpy, pymupdf
 ├── config.py             # Constants (URLs, paths, RAG params)
 ├── prompts.py            # System prompt
-├── tools.py              # Tool definitions (OpenAI JSON schema) + dispatch
-├── agent.py              # Core agent loop
+├── toolkit.py            # Internal functions (search, browse, crawl) — not LLM-facing
+├── skills/
+│   ├── __init__.py       # Skill registry + execute_skill() dispatch
+│   ├── research.py       # Tiered search: history → documents
+│   ├── read_doc.py       # Read full document content
+│   ├── browse.py         # Fetch a web page
+│   └── index_site.py     # Crawl + index a website
+├── agent.py              # Core agent loop (calls skills)
 ├── main.py               # Interactive REPL entry point
 ├── ingest.py             # CLI to ingest documents into the index
 ├── rag/
@@ -83,15 +93,26 @@ pymupdf         # PDF text extraction
 
 No LangChain, no vector database, no heavy frameworks.
 
-## Tools
+## Skills
 
-| Tool | Signature | Purpose |
-|------|-----------|---------|
-| `search_documents` | `(query: str) → chunks[]` | Hybrid search (BM25 + embeddings merged via RRF), return top-k chunks |
-| `read_document` | `(doc_id: str) → text` | Return full text of a document by its ID |
-| `summarize_text` | `(text: str) → summary` | Extractive summarization (first N sentences) — no extra LLM call in v1 |
+Skills are the LLM-facing interface. Each skill maps to a user intent and orchestrates internal toolkit functions.
 
-Tool definitions use OpenAI JSON schema format. llama-server translates Gemma 4's native `<|tool_call>call:name{...}<tool_call|>` tokens into standard OpenAI `tool_calls` objects transparently.
+| Skill | Input | Orchestration |
+|-------|-------|---------------|
+| `research` | `query: str` | search_history → search_documents → return combined results |
+| `read_document` | `doc_id: str` | Read full document from disk |
+| `browse` | `url: str` | Fetch page → extract text + links |
+| `index_site` | `url: str, max_pages?: int` | BFS crawl → save pages → index → report |
+
+### Internal Toolkit (`toolkit.py`)
+
+Functions called by skills, not exposed to the LLM:
+- `search_documents(query)` — hybrid search (BM25 + embeddings via RRF)
+- `read_document(doc_id)` — read file by ID
+- `browse_website(url)` — fetch + extract text/links
+- `crawl_website(url, max_pages)` — BFS crawl + incremental indexing
+
+Skill definitions use OpenAI JSON schema format. llama-server translates Gemma 4's native `<|tool_call>call:name{...}<tool_call|>` tokens into standard OpenAI `tool_calls` objects transparently.
 
 ## RAG Pipeline
 
@@ -170,4 +191,4 @@ Follows Claude Code patterns:
 - **Gemma 4 tool calling**: llama-server has native support via `TAG_WITH_GEMMA4_DICT` format parser (see `llama.cpp/common/chat-auto-parser.h`). The Jinja template at `models/templates/gemma4.jinja` handles formatting.
 - **Memory budget**: Gemma 4 Q4 (~14GB) + EmbeddingGemma (~200MB) + KV cache for 8192 context fits comfortably in 36GB.
 - **Error handling**: Wrap tool call parsing in try/except — model may occasionally malformat calls. Return error to model and let it retry (bounded by MAX_TURNS).
-- **Future expansion**: Can evolve into multi-agent system by adding specialized agents with different system prompts (planner, coder, reviewer) — the tool-calling loop is the foundation.
+- **Skills architecture**: Skills are presented as "tools" via the OpenAI API (same wire format), so the agent loop is unchanged. Each skill is a Python module in `skills/` with a `DEFINITION` dict and an `execute()` function. Adding a new skill = adding one file + registering it in `skills/__init__.py`.
