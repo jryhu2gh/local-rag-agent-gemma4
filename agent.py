@@ -2,13 +2,11 @@
 
 import json
 
-from openai import OpenAI
-from config import CHAT_BASE_URL, CHAT_MODEL, MAX_TURNS, TEMPERATURE, MAX_TOKENS
+import llm
+from config import MAX_TURNS
 from prompts import SYSTEM_PROMPT
 from skills import SKILL_DEFINITIONS, execute_skill
 import history
-
-_client = OpenAI(base_url=CHAT_BASE_URL, api_key="not-needed")
 
 
 def run(user_message: str, conv_history: list[dict]) -> tuple[str, list[dict]]:
@@ -27,20 +25,11 @@ def run(user_message: str, conv_history: list[dict]) -> tuple[str, list[dict]]:
 
     for turn in range(MAX_TURNS):
         try:
-            response = _client.chat.completions.create(
-                model=CHAT_MODEL,
-                messages=messages,
-                tools=SKILL_DEFINITIONS,
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
-            )
+            msg = llm.call(messages, tools=SKILL_DEFINITIONS)
         except Exception as e:
             error_msg = f"[Error calling LLM: {e}]"
             conv_history.append({"role": "assistant", "content": error_msg})
             return error_msg, conv_history
-
-        choice = response.choices[0]
-        msg = choice.message
 
         # If no tool calls, we have the final response
         if not msg.tool_calls:
