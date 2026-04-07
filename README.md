@@ -139,6 +139,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 | `research` | Searches past conversations then indexed documents (tiered retrieval via RRF hybrid search) |
 | `read_document` | Reads the full text of a specific document from a prior search result |
 | `web_search` | Searches the web via DuckDuckGo — returns titles, URLs, and snippets (no API key needed) |
+| `deep_research` | Searches the web and reads top results in full — composite skill for in-depth research |
 | `browse` | Fetches a web page and returns its content plus links for follow-up |
 | `index_site` | Crawls a website via BFS, saves pages locally, and indexes them for future research |
 
