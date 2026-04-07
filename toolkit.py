@@ -6,7 +6,12 @@ These are NOT exposed to the LLM directly — skills orchestrate them.
 import json
 from pathlib import Path
 
-from config import DOCUMENTS_DIR, INDEX_DIR, MAX_CRAWL_PAGES, MAX_SEARCH_RESULTS
+import time as _time
+
+from config import (
+    DOCUMENTS_DIR, INDEX_DIR, MAX_CRAWL_PAGES, MAX_SEARCH_RESULTS,
+    MAX_DEEP_RESEARCH_SOURCES, DEEP_RESEARCH_CONTENT_LIMIT,
+)
 from rag.bm25 import BM25Index
 from rag.chunker import chunk_text
 from rag.embedder import embed
@@ -119,7 +124,19 @@ def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
     """Search the web using DuckDuckGo. Returns JSON string with results."""
     from ddgs import DDGS
 
-    results = DDGS().text(query, max_results=max_results)
+    # Retry up to 3 times — ddgs randomly picks TLS settings and
+    # Python 3.9 sometimes fails on TLSv1.3
+    last_err = None
+    for attempt in range(3):
+        try:
+            results = DDGS().text(query, max_results=max_results)
+            break
+        except (ValueError, Exception) as e:
+            last_err = e
+            if attempt < 2:
+                _time.sleep(0.2)
+    else:
+        return json.dumps({"query": query, "results": [], "error": str(last_err)})
 
     formatted = []
     for r in results:
@@ -130,6 +147,59 @@ def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
         })
 
     return json.dumps({"query": query, "results": formatted}, indent=2)
+
+
+def deep_research(query: str, max_sources: int = 3) -> dict:
+    """Search the web and read top results. Returns dict for composability.
+
+    Unlike browse_website (4000 char limit), content is truncated to
+    DEEP_RESEARCH_CONTENT_LIMIT (2000 chars) to keep combined output manageable.
+    """
+    max_sources = min(max_sources, MAX_DEEP_RESEARCH_SOURCES)
+    t_start = _time.time()
+
+    # Step 1: Web search
+    print(f"  [deep_research] Searching: {query!r}")
+    search_raw = web_search(query, max_results=max_sources + 2)
+    search_results = json.loads(search_raw).get("results", [])
+    print(f"  [deep_research] Got {len(search_results)} search results")
+
+    # Step 2: Browse top results
+    sources = []
+    for i, result in enumerate(search_results[:max_sources]):
+        url = result.get("url", "")
+        if not url:
+            continue
+        print(f"  [deep_research] [{i+1}/{max_sources}] Fetching: {url[:80]}")
+        t_page = _time.time()
+        try:
+            soup, domain = _fetch_page(url)
+            content = _extract_text(soup)
+            if len(content) > DEEP_RESEARCH_CONTENT_LIMIT:
+                content = content[:DEEP_RESEARCH_CONTENT_LIMIT] + f"\n\n[... truncated, {len(content)} chars total]"
+            elapsed = _time.time() - t_page
+            print(f"  [deep_research] [{i+1}/{max_sources}] OK ({len(content)} chars, {elapsed:.1f}s)")
+            sources.append({
+                "title": result.get("title", ""),
+                "url": url,
+                "snippet": result.get("snippet", ""),
+                "content": content,
+            })
+        except Exception as e:
+            elapsed = _time.time() - t_page
+            print(f"  [deep_research] [{i+1}/{max_sources}] FAILED ({e}, {elapsed:.1f}s)")
+            sources.append({
+                "title": result.get("title", ""),
+                "url": url,
+                "snippet": result.get("snippet", ""),
+                "content": f"[Failed to load: {e}]",
+            })
+
+    total_chars = sum(len(s["content"]) for s in sources)
+    total_time = _time.time() - t_start
+    print(f"  [deep_research] Done: {len(sources)} sources, {total_chars} chars total, {total_time:.1f}s")
+
+    return {"query": query, "sources": sources}
 
 
 def browse_website(url: str) -> str:

@@ -38,6 +38,8 @@ MAX_TOKENS = 2048
 CONTEXT_SIZE = 8192       # llama-server context window
 MAX_CRAWL_PAGES = 50      # hard cap on pages per crawl_website call
 MAX_SEARCH_RESULTS = 5    # default number of web search results
+MAX_DEEP_RESEARCH_SOURCES = 5  # hard cap on pages per deep_research call
+DEEP_RESEARCH_CONTENT_LIMIT = 2000  # chars per page in deep_research (lower than browse's 4000)
 
 # History
 HISTORY_DIR = Path(os.environ.get("HISTORY_DIR", BASE_DIR / "history"))

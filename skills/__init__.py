@@ -11,14 +11,19 @@ from skills.read_doc import DEFINITION as read_doc_def, execute as read_doc_exec
 from skills.browse import DEFINITION as browse_def, execute as browse_exec
 from skills.index_site import DEFINITION as index_site_def, execute as index_site_exec
 from skills.web_search import DEFINITION as web_search_def, execute as web_search_exec
+from skills.deep_research import DEFINITION as deep_research_def, execute as deep_research_exec
 
-SKILL_DEFINITIONS = [research_def, read_doc_def, browse_def, web_search_def, index_site_def]
+SKILL_DEFINITIONS = [
+    research_def, read_doc_def, web_search_def,
+    deep_research_def, browse_def, index_site_def,
+]
 
 _DISPATCH = {
     "research": research_exec,
     "read_document": read_doc_exec,
-    "browse": browse_exec,
     "web_search": web_search_exec,
+    "deep_research": deep_research_exec,
+    "browse": browse_exec,
     "index_site": index_site_exec,
 }
 
