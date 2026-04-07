@@ -14,3 +14,4 @@ documents/
 # Chat history (user-specific, persisted across sessions)
 history/
 history_index/
+.DS_Store

@@ -244,7 +244,16 @@ def investigate(question: str) -> str:
         agents[aid] = agent
         print(f"[orchestrator] Sub-agent {aid} done")
 
-    # Step 3: EVALUATE (iterative)
+    # Single thread = simple question, skip evaluation and return directly
+    if len(threads) == 1:
+        aid = threads[0]["id"]
+        print(f"\n[orchestrator] Single thread — skipping evaluation, returning directly")
+        answer = agents[aid].summary
+        elapsed = time.time() - t_start
+        print(f"\n[orchestrator] Investigation complete ({elapsed:.1f}s total)")
+        return answer
+
+    # Step 3: EVALUATE (iterative, only for multi-thread investigations)
     print(f"\n[orchestrator] === EVALUATE ===")
     for round_num in range(MAX_EVALUATE_ROUNDS):
         print(f"[orchestrator] Evaluation round {round_num + 1}/{MAX_EVALUATE_ROUNDS}")

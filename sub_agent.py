@@ -36,28 +36,17 @@ SUB_AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "deep_research",
-            "description": "Search the web and read top results in full. Returns full page content from multiple sources.",
+            "description": (
+                "Search the web and read top results in full, OR browse a specific URL. "
+                "Provide query for web search, or url to read a specific page."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "What to research"},
+                    "query": {"type": "string", "description": "What to research (web search)"},
+                    "url": {"type": "string", "description": "Specific URL to browse (skips search)"},
                     "max_sources": {"type": "integer", "description": "Number of pages to read (default 3)"},
                 },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "browse",
-            "description": "Visit a specific URL and return its text content plus links.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "The URL to fetch"},
-                },
-                "required": ["url"],
             },
         },
     },
@@ -87,10 +76,12 @@ def _dispatch_tool(name: str, args: dict) -> str:
     if name == "web_search":
         return toolkit.web_search(args.get("query", ""), args.get("max_results", 5))
     elif name == "deep_research":
-        result = toolkit.deep_research(args.get("query", ""), args.get("max_sources", 3))
+        result = toolkit.deep_research(
+            query=args.get("query", ""),
+            url=args.get("url", ""),
+            max_sources=args.get("max_sources", 3),
+        )
         return json.dumps(result, indent=2)
-    elif name == "browse":
-        return toolkit.browse_website(args.get("url", ""))
     elif name == "search_local":
         return toolkit.search_documents(args.get("query", ""))
     else:
@@ -117,8 +108,7 @@ Your assigned topic: {topic}
 
 ## Your Tools
 - web_search: Quick web search — returns titles, URLs, and snippets
-- deep_research: Search and read top web pages in full (use for detailed info)
-- browse: Visit a specific URL to read its content
+- deep_research: Search the web and read top pages in full (provide query), or browse a specific URL (provide url)
 - search_local: Search locally indexed documents and past conversations
 
 ## When Done
