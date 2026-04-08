@@ -29,4 +29,7 @@ def execute_skill(name: str, arguments: dict) -> str:
     try:
         return handler(**arguments)
     except Exception as e:
+        import traceback
+        print(f"[skill:{name}] ERROR: {e}")
+        traceback.print_exc()
         return json.dumps({"error": f"Skill '{name}' failed: {str(e)}"})

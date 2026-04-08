@@ -230,21 +230,36 @@ def investigate(question: str) -> str:
     # Step 1: DECOMPOSE
     print(f"\n[orchestrator] === DECOMPOSE ===")
     print(f"[orchestrator] Question: {question}")
-    threads = _plan_research(question)
+    try:
+        threads = _plan_research(question)
+    except Exception as e:
+        print(f"[orchestrator] DECOMPOSE failed: {e}")
+        import traceback; traceback.print_exc()
+        return f"[Investigation failed during planning: {e}]"
+
     print(f"[orchestrator] Planned {len(threads)} research threads:")
     for t in threads:
-        print(f"  {t['id']}: {t['topic']}")
+        print(f"  {t.get('id', '?')}: {t.get('topic', '?')}")
 
     # Step 2: DISPATCH sub-agents
     print(f"\n[orchestrator] === DISPATCH ===")
     agents: dict[str, SubAgent] = {}
     for t in threads:
-        aid = t["id"]
-        print(f"\n[orchestrator] Starting sub-agent {aid}: {t['topic']}")
-        agent = SubAgent(agent_id=aid, topic=t["topic"], main_query=question)
-        agent.run()
-        agents[aid] = agent
-        print(f"[orchestrator] Sub-agent {aid} done")
+        aid = t.get("id", f"T{len(agents)}")
+        topic = t.get("topic", question)
+        print(f"\n[orchestrator] Starting sub-agent {aid}: {topic}")
+        try:
+            agent = SubAgent(agent_id=aid, topic=topic, main_query=question)
+            agent.run()
+            agents[aid] = agent
+            print(f"[orchestrator] Sub-agent {aid} done")
+        except Exception as e:
+            print(f"[orchestrator] Sub-agent {aid} FAILED: {e}")
+            import traceback; traceback.print_exc()
+            # Create a dummy agent with error summary so investigation can continue
+            agent = SubAgent(agent_id=aid, topic=topic, main_query=question)
+            agent.summary = f"[Research failed: {e}]"
+            agents[aid] = agent
 
     # Single thread = simple question, skip evaluation and return directly
     if len(threads) == 1:
@@ -260,7 +275,11 @@ def investigate(question: str) -> str:
     for round_num in range(MAX_EVALUATE_ROUNDS):
         print(f"[orchestrator] Evaluation round {round_num + 1}/{MAX_EVALUATE_ROUNDS}")
         summaries = {aid: a.summary for aid, a in agents.items()}
-        evaluation = _evaluate_research(question, threads, summaries)
+        try:
+            evaluation = _evaluate_research(question, threads, summaries)
+        except Exception as e:
+            print(f"[orchestrator] Evaluation failed: {e}, skipping to synthesis")
+            break
 
         if evaluation["complete"]:
             break
@@ -270,14 +289,23 @@ def investigate(question: str) -> str:
             aid = fu["agent_id"]
             if aid in agents:
                 print(f"[orchestrator] Follow-up → {aid}: {fu['question'][:80]}")
-                agents[aid].follow_up(fu["question"])
+                try:
+                    agents[aid].follow_up(fu["question"])
+                except Exception as e:
+                    print(f"[orchestrator] Follow-up to {aid} failed: {e}")
             else:
                 print(f"[orchestrator] Warning: unknown agent_id {aid}")
 
     # Step 4: SYNTHESIZE
     print(f"\n[orchestrator] === SYNTHESIZE ===")
     final_summaries = {aid: a.summary for aid, a in agents.items()}
-    answer = _synthesize(question, threads, final_summaries)
+    try:
+        answer = _synthesize(question, threads, final_summaries)
+    except Exception as e:
+        print(f"[orchestrator] Synthesis failed: {e}")
+        # Fallback: concatenate summaries
+        parts = [f"Thread {aid}: {s}" for aid, s in final_summaries.items()]
+        answer = "Research findings (synthesis failed):\n\n" + "\n\n".join(parts)
 
     elapsed = time.time() - t_start
     print(f"\n[orchestrator] Investigation complete ({elapsed:.1f}s total)")
