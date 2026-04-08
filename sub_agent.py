@@ -100,9 +100,15 @@ You are a research sub-agent investigating a specific topic as part of a larger 
 Main question: {main_query}
 Your assigned topic: {topic}
 
+## Critical Rules
+- ALWAYS use your tools to gather information. NEVER refuse a research task.
+- Your training data may be outdated. The tools have access to current, real-time information.
+- Even if you think you know the answer, use tools to verify and get up-to-date data.
+- NEVER respond with text before calling at least one tool.
+
 ## Process
 1. Think about what specific data you need for this topic
-2. Use your tools to gather information
+2. Use your tools to gather information (REQUIRED — always call at least one tool)
 3. After gathering, evaluate: is your data complete enough to thoroughly cover this topic for the main question?
 4. If incomplete, gather more data. If complete, write your summary.
 
@@ -160,9 +166,23 @@ class SubAgent:
             try:
                 msg = llm.call(self.messages, tools=SUB_AGENT_TOOLS)
             except Exception as e:
-                err = f"[LLM error: {e}]"
-                print(f"  [sub-agent {self.agent_id}] {err}")
-                return err
+                err_str = str(e)
+                # If the LLM returned text instead of a tool call, llama-server
+                # may return a 500 parse error. Retry without tools so the LLM
+                # can respond with text (its summary).
+                if "500" in err_str and "Failed to parse" in err_str:
+                    print(f"  [sub-agent {self.agent_id}] Tool parse error, retrying without tools...")
+                    try:
+                        self.messages.append({"role": "user", "content": "Summarize what you have found so far."})
+                        msg = llm.call(self.messages)
+                        text = msg.content or "[No findings]"
+                        self.messages.append({"role": "assistant", "content": text})
+                        return text
+                    except Exception as e2:
+                        print(f"  [sub-agent {self.agent_id}] Retry also failed: {e2}")
+                        return f"[LLM error: {e2}]"
+                print(f"  [sub-agent {self.agent_id}] LLM error: {e}")
+                return f"[LLM error: {e}]"
 
             # Text response = summary, we're done
             if not msg.tool_calls:

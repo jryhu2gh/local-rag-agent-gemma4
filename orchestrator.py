@@ -96,8 +96,10 @@ Rules:
 - 3-5 threads is ideal (max {max_threads})
 - Each thread should have a clear, searchable topic
 - Think about what a thorough human researcher would investigate
+- NEVER refuse a question. Your training data may be outdated — the research \
+tools have access to current, real-time information. Always plan the research.
 
-Call plan_research with your threads.\
+You MUST call plan_research with your threads. Do not respond with text.\
 """
 
 _EVALUATOR_PROMPT = """\
