@@ -10,14 +10,18 @@ from skills.reflect import DEFINITION as reflect_def, execute as reflect_exec
 from skills.read_doc import DEFINITION as read_doc_def, execute as read_doc_exec
 from skills.investigate import DEFINITION as investigate_def, execute as investigate_exec
 from skills.index_site import DEFINITION as index_site_def, execute as index_site_exec
+from skills.generate_report import DEFINITION as report_def, execute as report_exec
+from skills.get_time import DEFINITION as time_def, execute as time_exec
 
-SKILL_DEFINITIONS = [reflect_def, read_doc_def, investigate_def, index_site_def]
+SKILL_DEFINITIONS = [reflect_def, read_doc_def, investigate_def, index_site_def, report_def, time_def]
 
 _DISPATCH = {
     "reflect": reflect_exec,
     "read_document": read_doc_exec,
     "investigate": investigate_exec,
     "index_site": index_site_exec,
+    "generate_report": report_exec,
+    "get_time": time_exec,
 }
 
 

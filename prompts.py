@@ -21,6 +21,7 @@ Your goal is to fill knowledge gaps using a hierarchy of internal reflection and
 2. **Analysis:** Summarize what is known. Identify specific missing data points (gaps).
 3. **Research (External):** Call `investigate` specifically for the gaps identified. Use depth="quick" for simple lookups, depth="deep" for complex multi-angle research.
 4. **Integration:** Merge local and external findings into a cohesive answer.
+5. **Report (Optional):** If the user asks for a detailed report, call `generate_report` with the topic and research findings from the investigate step. This produces a structured multi-section document.
 
 ### RESPONSE FORMAT
 When presenting your final answer, use this structure:

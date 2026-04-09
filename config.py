@@ -46,6 +46,11 @@ MAX_SUB_AGENT_TURNS = 6       # max tool calls per sub-agent run
 MAX_INVESTIGATE_THREADS = 5   # max research threads per investigation
 MAX_EVALUATE_ROUNDS = 3       # max evaluation iterations before forcing synthesis
 
+# Report generation
+MAX_REPORT_SECTIONS = 8       # max sections in a generated report
+SECTION_TARGET_WORDS = 500    # target word count per section
+RESEARCH_CONTEXT_LIMIT = 12000  # chars of research data per section prompt
+
 # History
 HISTORY_DIR = Path(os.environ.get("HISTORY_DIR", BASE_DIR / "history"))
 HISTORY_INDEX_DIR = Path(os.environ.get("HISTORY_INDEX_DIR", BASE_DIR / "history_index"))
