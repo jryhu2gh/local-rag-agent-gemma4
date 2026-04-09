@@ -41,6 +41,16 @@ MAX_SEARCH_RESULTS = 5    # default number of web search results
 MAX_DEEP_RESEARCH_SOURCES = 5  # hard cap on pages per deep_research call
 DEEP_RESEARCH_CONTENT_LIMIT = 2000  # chars per page in deep_research (lower than browse's 4000)
 
+# Multi-agent parameters
+MAX_SUB_AGENT_TURNS = 6       # max tool calls per sub-agent run
+MAX_INVESTIGATE_THREADS = 5   # max research threads per investigation
+MAX_EVALUATE_ROUNDS = 3       # max evaluation iterations before forcing synthesis
+
+# Report generation
+MAX_REPORT_SECTIONS = 8       # max sections in a generated report
+SECTION_TARGET_WORDS = 500    # target word count per section
+RESEARCH_CONTEXT_LIMIT = 12000  # chars of research data per section prompt
+
 # History
 HISTORY_DIR = Path(os.environ.get("HISTORY_DIR", BASE_DIR / "history"))
 HISTORY_INDEX_DIR = Path(os.environ.get("HISTORY_INDEX_DIR", BASE_DIR / "history_index"))

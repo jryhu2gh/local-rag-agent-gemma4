@@ -149,14 +149,43 @@ def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
     return json.dumps({"query": query, "results": formatted}, indent=2)
 
 
-def deep_research(query: str, max_sources: int = 3) -> dict:
-    """Search the web and read top results. Returns dict for composability.
+def deep_research(query: str = "", url: str = "", max_sources: int = 3) -> dict:
+    """Search the web and read top results, or browse a specific URL.
 
-    Unlike browse_website (4000 char limit), content is truncated to
-    DEEP_RESEARCH_CONTENT_LIMIT (2000 chars) to keep combined output manageable.
+    If `url` is provided, skips search and just browses that URL.
+    If `query` is provided, searches the web and reads top results.
+    Content is truncated to DEEP_RESEARCH_CONTENT_LIMIT (2000 chars) per page.
+
+    Returns dict for composability (not JSON string).
     """
-    max_sources = min(max_sources, MAX_DEEP_RESEARCH_SOURCES)
     t_start = _time.time()
+
+    # Mode 1: Direct URL browse
+    if url:
+        print(f"  [deep_research] Browsing URL: {url[:80]}")
+        try:
+            soup, domain = _fetch_page(url)
+            content = _extract_text(soup)
+            links = _extract_links(soup, url, domain)
+            if len(content) > DEEP_RESEARCH_CONTENT_LIMIT:
+                content = content[:DEEP_RESEARCH_CONTENT_LIMIT] + f"\n\n[... truncated, {len(content)} chars total]"
+            elapsed = _time.time() - t_start
+            print(f"  [deep_research] OK ({len(content)} chars, {elapsed:.1f}s)")
+            return {
+                "mode": "browse",
+                "url": url,
+                "sources": [{"title": "", "url": url, "snippet": "", "content": content}],
+                "links": links[:10],
+            }
+        except Exception as e:
+            print(f"  [deep_research] FAILED ({e})")
+            return {"mode": "browse", "url": url, "sources": [], "error": str(e)}
+
+    # Mode 2: Web search + browse top results
+    if not query:
+        return {"error": "Either query or url must be provided"}
+
+    max_sources = min(max_sources, MAX_DEEP_RESEARCH_SOURCES)
 
     # Step 1: Web search
     print(f"  [deep_research] Searching: {query!r}")
@@ -167,13 +196,13 @@ def deep_research(query: str, max_sources: int = 3) -> dict:
     # Step 2: Browse top results
     sources = []
     for i, result in enumerate(search_results[:max_sources]):
-        url = result.get("url", "")
-        if not url:
+        page_url = result.get("url", "")
+        if not page_url:
             continue
-        print(f"  [deep_research] [{i+1}/{max_sources}] Fetching: {url[:80]}")
+        print(f"  [deep_research] [{i+1}/{max_sources}] Fetching: {page_url[:80]}")
         t_page = _time.time()
         try:
-            soup, domain = _fetch_page(url)
+            soup, domain = _fetch_page(page_url)
             content = _extract_text(soup)
             if len(content) > DEEP_RESEARCH_CONTENT_LIMIT:
                 content = content[:DEEP_RESEARCH_CONTENT_LIMIT] + f"\n\n[... truncated, {len(content)} chars total]"
@@ -181,7 +210,7 @@ def deep_research(query: str, max_sources: int = 3) -> dict:
             print(f"  [deep_research] [{i+1}/{max_sources}] OK ({len(content)} chars, {elapsed:.1f}s)")
             sources.append({
                 "title": result.get("title", ""),
-                "url": url,
+                "url": page_url,
                 "snippet": result.get("snippet", ""),
                 "content": content,
             })
@@ -190,7 +219,7 @@ def deep_research(query: str, max_sources: int = 3) -> dict:
             print(f"  [deep_research] [{i+1}/{max_sources}] FAILED ({e}, {elapsed:.1f}s)")
             sources.append({
                 "title": result.get("title", ""),
-                "url": url,
+                "url": page_url,
                 "snippet": result.get("snippet", ""),
                 "content": f"[Failed to load: {e}]",
             })
@@ -199,7 +228,7 @@ def deep_research(query: str, max_sources: int = 3) -> dict:
     total_time = _time.time() - t_start
     print(f"  [deep_research] Done: {len(sources)} sources, {total_chars} chars total, {total_time:.1f}s")
 
-    return {"query": query, "sources": sources}
+    return {"mode": "search", "query": query, "sources": sources}
 
 
 def browse_website(url: str) -> str:

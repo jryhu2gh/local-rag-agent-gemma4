@@ -6,25 +6,22 @@ and orchestrates internal toolkit functions deterministically.
 
 import json
 
-from skills.research import DEFINITION as research_def, execute as research_exec
+from skills.reflect import DEFINITION as reflect_def, execute as reflect_exec
 from skills.read_doc import DEFINITION as read_doc_def, execute as read_doc_exec
-from skills.browse import DEFINITION as browse_def, execute as browse_exec
+from skills.investigate import DEFINITION as investigate_def, execute as investigate_exec
 from skills.index_site import DEFINITION as index_site_def, execute as index_site_exec
-from skills.web_search import DEFINITION as web_search_def, execute as web_search_exec
-from skills.deep_research import DEFINITION as deep_research_def, execute as deep_research_exec
+from skills.generate_report import DEFINITION as report_def, execute as report_exec
+from skills.get_time import DEFINITION as time_def, execute as time_exec
 
-SKILL_DEFINITIONS = [
-    research_def, read_doc_def, web_search_def,
-    deep_research_def, browse_def, index_site_def,
-]
+SKILL_DEFINITIONS = [reflect_def, read_doc_def, investigate_def, index_site_def, report_def, time_def]
 
 _DISPATCH = {
-    "research": research_exec,
+    "reflect": reflect_exec,
     "read_document": read_doc_exec,
-    "web_search": web_search_exec,
-    "deep_research": deep_research_exec,
-    "browse": browse_exec,
+    "investigate": investigate_exec,
     "index_site": index_site_exec,
+    "generate_report": report_exec,
+    "get_time": time_exec,
 }
 
 
@@ -36,4 +33,7 @@ def execute_skill(name: str, arguments: dict) -> str:
     try:
         return handler(**arguments)
     except Exception as e:
+        import traceback
+        print(f"[skill:{name}] ERROR: {e}")
+        traceback.print_exc()
         return json.dumps({"error": f"Skill '{name}' failed: {str(e)}"})

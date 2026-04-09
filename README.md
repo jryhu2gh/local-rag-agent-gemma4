@@ -1,8 +1,8 @@
 # Local RAG Agent with Gemma 4
 
-A skills-based research agent that runs **entirely locally** on your machine. It searches a local document collection using hybrid search (BM25 keyword matching + semantic embeddings), browses the web, and answers questions with cited sources.
+A multi-agent research system that runs **entirely locally** on your machine. It searches local documents using hybrid search (BM25 + semantic embeddings), runs multi-threaded web investigations, generates structured reports, and answers questions with cited sources.
 
-Uses a **skills architecture**: the LLM picks a high-level skill (e.g., `research`, `browse`), and the skill's Python code orchestrates the underlying operations deterministically — reducing LLM cognitive load and improving reliability.
+Uses **Gemma 4 thinking mode** (`<|channel>thought`) for internal reasoning and a **skills architecture** where the LLM picks a high-level skill and Python code handles the orchestration deterministically.
 
 Built with:
 - **Gemma 4 26B-A4B** (MoE, only 4B params active per inference) via llama.cpp
@@ -87,13 +87,23 @@ python3 main.py
 
 Then ask questions:
 ```
-You: What is Rust's approach to memory safety?
+You: What are the latest trends in green energy?
 
-  -> Calling skill: research({"query": "Rust memory safety"})
+  [thinking] I should reflect first to check local knowledge...
+  -> Calling skill: reflect({"query": "green energy trends"})
+  [auto-chain] reflect → investigate (status: no_local_knowledge)
 
-Agent: Rust achieves memory safety without garbage collection through its
-ownership system with compile-time borrow checking...
-(Source: sample-rust.md)
+  [orchestrator] === DECOMPOSE ===
+  [orchestrator] Planned 4 research threads:
+    A: Solar energy cost and deployment trends
+    B: Wind energy offshore developments
+    C: Battery storage breakthroughs
+    D: Government policy and subsidies
+
+  [orchestrator] === DISPATCH ===
+  ...sub-agents researching in parallel...
+
+Agent: Based on my research across multiple sources...
 ```
 
 Commands: `/clear` to reset conversation, `/quit` to exit.
@@ -115,39 +125,41 @@ These work for both `start_servers.sh` and the Python scripts.
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 
 ```
-┌─────────────┐     ┌──────────────────────────┐
-│  You (REPL) │────>│  Python Agent (agent.py)  │
-└─────────────┘     │  - system prompt          │
-                    │  - skill dispatch          │
-                    └────┬──────────┬────────────┘
-                         │          │
-              skill calls│          │ embeddings
-                         v          v
-               ┌──────────┐  ┌──────────┐
-               │ llama-   │  │ llama-   │
-               │ server   │  │ server   │
-               │ :8080    │  │ :8081    │
-               │ Gemma 4  │  │ EmbGemma │
-               │ (chat)   │  │ (embed)  │
-               └──────────┘  └──────────┘
+┌─────────────┐     ┌──────────────────────────────────┐
+│  You (REPL) │────>│  Agent (agent.py)                │
+└─────────────┘     │  - Gemma 4 thinking mode         │
+                    │  - skill dispatch                 │
+                    │  - auto-chain (reflect→investigate)│
+                    └──┬──────────┬─────────────────────┘
+                       │          │
+            skill calls│          │ embeddings
+                       v          v
+             ┌──────────┐  ┌──────────┐
+             │ llama-   │  │ llama-   │
+             │ server   │  │ server   │
+             │ :8080    │  │ :8081    │
+             │ Gemma 4  │  │ EmbGemma │
+             │ (chat)   │  │ (embed)  │
+             └──────────┘  └──────────┘
 ```
 
 ## Skills
 
 | Skill | What it does |
 |-------|-------------|
-| `research` | Searches past conversations then indexed documents (tiered retrieval via RRF hybrid search) |
-| `read_document` | Reads the full text of a specific document from a prior search result |
-| `web_search` | Searches the web via DuckDuckGo — returns titles, URLs, and snippets (no API key needed) |
-| `deep_research` | Searches the web and reads top results in full — composite skill for in-depth research |
-| `browse` | Fetches a web page and returns its content plus links for follow-up |
-| `index_site` | Crawls a website via BFS, saves pages locally, and indexes them for future research |
+| `reflect` | Searches past conversations and indexed documents, then uses the LLM to assess if the question can be answered locally |
+| `read_document` | Reads the full text of a specific document from a prior reflect result |
+| `investigate` | Runs web research. `depth="quick"` for single-thread lookups, `depth="deep"` for multi-agent research with parallel threads, evaluation, and synthesis |
+| `index_site` | Crawls a website via BFS, saves pages locally, and indexes them for future reflect searches |
+| `generate_report` | Creates a structured multi-section report from prior investigate results (outline → section drafting with sliding context → executive summary) |
+| `get_time` | Returns the current date and time |
 
 ## How it works
 
 1. You ask a question
-2. The agent sends it to Gemma 4 with skill definitions
-3. Gemma picks a skill (e.g., `research`) — one decision per turn
-4. The skill's Python code orchestrates internal operations (search history → search documents → combine results)
-5. Results are fed back to Gemma
-6. Gemma may call another skill (e.g., `read_document` for more detail) or synthesize a final answer with citations
+2. Gemma 4 thinks internally (via `<|channel>thought` tokens) and picks a skill
+3. **Reflect**: checks local documents and past conversations
+4. If knowledge is insufficient, **auto-chains** to investigate
+5. **Investigate** (deep): orchestrator decomposes the question into threads, dispatches sub-agents that search the web, evaluates completeness, and synthesizes findings
+6. If a report is requested, **generate_report** creates a structured document from the research
+7. Thinking blocks are stripped from conversation history to prevent reasoning debt
