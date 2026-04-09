@@ -1,5 +1,8 @@
 """Orchestrator: decomposes complex questions into research threads,
 dispatches sub-agents, evaluates completeness, and synthesizes answers.
+
+All LLM calls use Gemma 4 thinking mode.  Thinking blocks are stripped
+from outputs that flow to other stages so each stage starts clean.
 """
 
 import json
@@ -138,6 +141,28 @@ Reference specific data points from the research. Be thorough but clear.\
 # ---------------------------------------------------------------------------
 
 
+def _normalize_threads(threads: list) -> list[dict]:
+    """Ensure every thread is a dict with 'id' and 'topic' keys.
+
+    The LLM sometimes returns strings instead of dicts, or dicts missing
+    the 'id' field. This normalizes all variants into a consistent format.
+    """
+    labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    normalized = []
+    for i, t in enumerate(threads):
+        label = labels[i] if i < len(labels) else str(i)
+        if isinstance(t, str):
+            normalized.append({"id": label, "topic": t})
+        elif isinstance(t, dict):
+            normalized.append({
+                "id": t.get("id", label),
+                "topic": t.get("topic", t.get("description", t.get("query", str(t)))),
+            })
+        else:
+            normalized.append({"id": label, "topic": str(t)})
+    return normalized
+
+
 def _plan_research(question: str) -> list[dict]:
     """Ask the LLM to decompose the question into research threads."""
     messages = [
@@ -153,6 +178,7 @@ def _plan_research(question: str) -> list[dict]:
             if tc.function.name == "plan_research":
                 args = json.loads(tc.function.arguments)
                 threads = args.get("threads", [])
+                threads = _normalize_threads(threads)
                 return threads[:MAX_INVESTIGATE_THREADS]
 
     # Fallback: if LLM didn't use the tool, create a single thread
@@ -211,7 +237,11 @@ def _synthesize(question: str, threads: list[dict], summaries: dict[str, str]) -
     ]
 
     msg = llm.call(messages, max_tokens=4096)
-    return msg.content or "[Synthesis failed]"
+    raw = msg.content or "[Synthesis failed]"
+    clean, thinking = llm.parse_thinking(raw)
+    if thinking:
+        print(f"[orchestrator] Synthesis thinking: {thinking[:150]}...")
+    return clean
 
 
 # ---------------------------------------------------------------------------
@@ -219,14 +249,34 @@ def _synthesize(question: str, threads: list[dict], summaries: dict[str, str]) -
 # ---------------------------------------------------------------------------
 
 
-def investigate(question: str) -> str:
-    """Run a multi-agent investigation on a complex question.
+def investigate(question: str, depth: str = "quick") -> str:
+    """Run an investigation on a question.
 
-    Steps: decompose → dispatch sub-agents → evaluate → synthesize.
-    Returns the final synthesized answer.
+    Args:
+        question: The question to investigate.
+        depth: "quick" for single-thread lookup, "deep" for full
+               multi-agent decompose → dispatch → evaluate → synthesize.
+
+    Returns the final answer.
     """
     t_start = time.time()
 
+    # Quick mode: single sub-agent, no planning/evaluation/synthesis
+    if depth == "quick":
+        print(f"\n[orchestrator] === QUICK INVESTIGATION ===")
+        print(f"[orchestrator] Question: {question}")
+        agent = SubAgent(agent_id="Q", topic=question, main_query=question)
+        try:
+            agent.run()
+        except Exception as e:
+            print(f"[orchestrator] Quick investigation FAILED: {e}")
+            import traceback; traceback.print_exc()
+            return f"[Investigation failed: {e}]"
+        elapsed = time.time() - t_start
+        print(f"\n[orchestrator] Quick investigation complete ({elapsed:.1f}s)")
+        return agent.summary
+
+    # Deep mode: full multi-agent flow
     # Step 1: DECOMPOSE
     print(f"\n[orchestrator] === DECOMPOSE ===")
     print(f"[orchestrator] Question: {question}")

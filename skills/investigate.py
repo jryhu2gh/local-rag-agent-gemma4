@@ -7,27 +7,29 @@ DEFINITION = {
     "function": {
         "name": "investigate",
         "description": (
-            "Run an in-depth multi-agent investigation on a complex question. "
-            "Decomposes the question into independent research threads, dispatches "
-            "sub-agents to gather data, evaluates completeness, and synthesizes a "
-            "comprehensive answer. Use this for complex questions that need multiple "
-            "angles of research (e.g., stock analysis, technology comparisons, "
-            "strategic decisions)."
+            "Run an investigation on a question. Use depth='quick' for simple lookups "
+            "and depth='deep' for multi-threaded multi-agent research on complex questions "
+            "(e.g., comparisons, analysis, strategic decisions)."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "question": {
+                "query": {
                     "type": "string",
-                    "description": "The complex question to investigate thoroughly",
+                    "description": "The question to investigate",
+                },
+                "depth": {
+                    "type": "string",
+                    "enum": ["quick", "deep"],
+                    "description": "Research depth: 'quick' for simple lookups, 'deep' for multi-agent research",
                 },
             },
-            "required": ["question"],
+            "required": ["query"],
         },
     },
 }
 
 
-def execute(question: str) -> str:
-    """Run multi-agent investigation."""
-    return orchestrator.investigate(question)
+def execute(query: str, depth: str = "quick") -> str:
+    """Run investigation at the specified depth."""
+    return orchestrator.investigate(query, depth=depth)

@@ -35,6 +35,8 @@ DEFINITION = {
 _REFLECT_PROMPT = """\
 You are reviewing what is already known about a topic from local sources.
 
+The user's question: {query}
+
 Below are results from past conversations and indexed documents.
 
 ## From past conversations:
@@ -44,11 +46,11 @@ Below are results from past conversations and indexed documents.
 {documents_section}
 
 Provide a brief assessment:
-1. **What I know**: Summarize the key facts available from these sources.
-2. **What I don't know**: Identify gaps — what information is missing or incomplete?
-3. **Confidence**: How confident are you that the available information can answer the question?
+1. **What I know**: Summarize ONLY facts that DIRECTLY answer the question. Ignore tangentially related results.
+2. **What I don't know**: What information is missing to answer the question?
+3. **Can the question be answered?**: Reply YES or NO. Say YES only if the sources above contain a direct, substantive answer. If the sources only mention the topic in passing, or contain no real answer, say NO.
 
-Be concise and specific.\
+Be concise and specific. Be strict — having related text is NOT the same as having an answer.\
 """
 
 
@@ -95,6 +97,7 @@ def execute(query: str) -> str:
     print(f"  [reflect] Summarizing with LLM...")
     messages = [
         {"role": "system", "content": _REFLECT_PROMPT.format(
+            query=query,
             history_section=history_section,
             documents_section=documents_section,
         )},
@@ -105,10 +108,25 @@ def execute(query: str) -> str:
     summary = msg.content or "[Summarization failed]"
     print(f"  [reflect] Summary ready ({len(summary)} chars)")
 
+    # Check if the LLM concluded it can answer the question
+    summary_lower = summary.lower()
+    can_answer = "can the question be answered?: yes" in summary_lower or \
+                 "can the question be answered?**: yes" in summary_lower
+
+    if can_answer:
+        status = "answered"
+        recommendation = "Local knowledge is sufficient to answer this question."
+    else:
+        status = "insufficient"
+        recommendation = "Local knowledge is NOT sufficient. You MUST call investigate to search the web for this information. Do NOT answer from local knowledge alone."
+
+    print(f"  [reflect] Status: {status}")
+
     return json.dumps({
         "query": query,
-        "status": "knowledge_found",
+        "status": status,
         "summary": summary,
+        "recommendation": recommendation,
         "sources": {
             "history_matches": len(history_results),
             "document_matches": len(doc_results),

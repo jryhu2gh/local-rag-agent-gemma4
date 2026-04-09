@@ -3,6 +3,9 @@
 Each sub-agent has its own conversation context and access to toolkit
 functions. It runs a tool-calling loop until the LLM produces a text
 response (the summary), then returns it to the orchestrator.
+
+Uses Gemma 4 thinking mode — thinking is logged for debugging and
+stripped from summaries returned to the orchestrator.
 """
 
 import json
@@ -175,7 +178,10 @@ class SubAgent:
                     try:
                         self.messages.append({"role": "user", "content": "Summarize what you have found so far."})
                         msg = llm.call(self.messages)
-                        text = msg.content or "[No findings]"
+                        raw = msg.content or "[No findings]"
+                        text, thinking = llm.parse_thinking(raw)
+                        if thinking:
+                            print(f"  [sub-agent {self.agent_id}] thinking: {thinking[:120]}...")
                         self.messages.append({"role": "assistant", "content": text})
                         return text
                     except Exception as e2:
@@ -184,15 +190,22 @@ class SubAgent:
                 print(f"  [sub-agent {self.agent_id}] LLM error: {e}")
                 return f"[LLM error: {e}]"
 
+            # Separate thinking from visible content
+            raw_content = msg.content or ""
+            clean_content, thinking = llm.parse_thinking(raw_content)
+
+            if thinking:
+                print(f"  [sub-agent {self.agent_id}] thinking: {thinking[:120]}...")
+
             # Text response = summary, we're done
             if not msg.tool_calls:
-                text = msg.content or "[No findings]"
+                text = clean_content or "[No findings]"
                 self.messages.append({"role": "assistant", "content": text})
                 print(f"  [sub-agent {self.agent_id}] Summary ready ({len(text)} chars)")
                 return text
 
-            # Handle tool calls
-            assistant_msg = {"role": "assistant", "content": msg.content or ""}
+            # Handle tool calls — store clean content in history
+            assistant_msg = {"role": "assistant", "content": clean_content}
             assistant_msg["tool_calls"] = [
                 {
                     "id": tc.id or f"call_{self.agent_id}_{turn}_{i}",
