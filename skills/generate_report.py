@@ -7,10 +7,11 @@ DEFINITION = {
     "function": {
         "name": "generate_report",
         "description": (
-            "Generate a detailed, structured report on a topic. Uses research data "
-            "from a prior investigate call to create a multi-section report with "
-            "executive summary, analysis sections, and conclusion. "
-            "Call this AFTER investigate has gathered the research data."
+            "Generate a detailed, structured report on a topic. Uses raw research "
+            "data from the most recent investigate call (stored in the research vault) "
+            "to create a multi-section report with executive summary, analysis sections, "
+            "and conclusion. Each section is written using the original source material, "
+            "not just summaries. Call this AFTER investigate has gathered research data."
         ),
         "parameters": {
             "type": "object",
@@ -21,10 +22,13 @@ DEFINITION = {
                 },
                 "research_data": {
                     "type": "string",
-                    "description": "Research findings from a prior investigate call",
+                    "description": (
+                        "Optional fallback research text. Not needed if investigate "
+                        "was called earlier — the vault provides raw data automatically."
+                    ),
                 },
             },
-            "required": ["topic", "research_data"],
+            "required": ["topic"],
         },
     },
 }

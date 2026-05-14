@@ -12,6 +12,7 @@ import json
 import time
 
 import llm
+import research_index
 import toolkit
 from config import MAX_SUB_AGENT_TURNS
 
@@ -98,26 +99,26 @@ def _dispatch_tool(name: str, args: dict) -> str:
 
 def _build_prompt(topic: str, main_query: str) -> str:
     return f"""\
-You are a research sub-agent investigating a specific topic as part of a larger research question.
+You are a specialist research agent assigned to ONE specific dimension \
+of a larger investigation. Other agents cover other dimensions — do NOT \
+duplicate their work.
 
-Main question: {main_query}
-Your assigned topic: {topic}
+Main question (context only): {main_query}
+YOUR assigned dimension: {topic}
 
 ## Critical Rules
-- ALWAYS use your tools to gather information. NEVER refuse a research task.
-- Your training data may be outdated. The tools have access to current, real-time information.
-- Even if you think you know the answer, use tools to verify and get up-to-date data.
-- NEVER respond with text before calling at least one tool.
-
-## Process
-1. Think about what specific data you need for this topic
-2. Use your tools to gather information (REQUIRED — always call at least one tool)
-3. After gathering, evaluate: is your data complete enough to thoroughly cover this topic for the main question?
-4. If incomplete, gather more data. If complete, write your summary.
+- Search ONLY for your dimension: "{topic}"
+- Your search queries must use keywords from YOUR dimension, not from \
+the main question. Do NOT search for "{main_query}".
+- ALWAYS use your tools. NEVER respond with text before calling at least one tool.
+- Your training data may be outdated. Use tools to get current information.
+- Demand SPECIFICS: find exact numbers, dates, percentages, named entities. \
+"Revenue grew significantly" is not enough — find the actual figure.
 
 ## Your Tools
 - web_search: Quick web search — returns titles, URLs, and snippets
-- deep_research: Search the web and read top pages in full (provide query), or browse a specific URL (provide url)
+- deep_research: Search the web and read top pages in full (provide query), \
+or browse a specific URL (provide url)
 - search_local: Search locally indexed documents and past conversations
 
 ## When Done
@@ -127,7 +128,7 @@ Stop calling tools and respond with a structured summary:
 - [bullet points of what you found]
 
 **Data Collected:**
-- [list what specific data points you have, so completeness can be verified]
+- [specific data points: numbers, dates, percentages, quotes with attribution]
 
 **Sources:**
 - [URLs or document names]
@@ -144,10 +145,11 @@ Keep the summary concise (under 500 words). Focus on facts and data, not opinion
 class SubAgent:
     """A mini agent that researches a single topic."""
 
-    def __init__(self, agent_id: str, topic: str, main_query: str):
+    def __init__(self, agent_id: str, topic: str, main_query: str, vault=None):
         self.agent_id = agent_id
         self.topic = topic
         self.main_query = main_query
+        self.vault = vault
         self.messages = [{"role": "system", "content": _build_prompt(topic, main_query)}]
         self.summary = None
 
@@ -178,8 +180,8 @@ class SubAgent:
                     try:
                         self.messages.append({"role": "user", "content": "Summarize what you have found so far."})
                         msg = llm.call(self.messages)
-                        raw = msg.content or "[No findings]"
-                        text, thinking = llm.parse_thinking(raw)
+                        text, thinking = llm.parse_thinking(msg)
+                        text = text or "[No findings]"
                         if thinking:
                             print(f"  [sub-agent {self.agent_id}] thinking: {thinking[:120]}...")
                         self.messages.append({"role": "assistant", "content": text})
@@ -191,8 +193,7 @@ class SubAgent:
                 return f"[LLM error: {e}]"
 
             # Separate thinking from visible content
-            raw_content = msg.content or ""
-            clean_content, thinking = llm.parse_thinking(raw_content)
+            clean_content, thinking = llm.parse_thinking(msg)
 
             if thinking:
                 print(f"  [sub-agent {self.agent_id}] thinking: {thinking[:120]}...")
@@ -231,6 +232,17 @@ class SubAgent:
                 result = _dispatch_tool(tool_name, tool_args)
                 elapsed = time.time() - t_start
                 print(f"  [sub-agent {self.agent_id}] ← {tool_name} ({len(result)} chars, {elapsed:.1f}s)")
+
+                # Save raw result to vault + session research index
+                if self.vault:
+                    key = self.vault.add(self.agent_id, tool_name, tool_args, result)
+                    print(f"  [sub-agent {self.agent_id}] → vault: {key}")
+                if tool_name in ("web_search", "deep_research"):
+                    source = tool_args.get("query", tool_args.get("url", "web"))
+                    try:
+                        research_index.add(result, source=source, thread_id=self.agent_id)
+                    except Exception:
+                        pass
 
                 tool_msg = {
                     "role": "tool",

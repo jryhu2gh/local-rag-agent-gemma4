@@ -7,10 +7,13 @@ from outputs that flow to other stages so each stage starts clean.
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import llm
+import research_vault as rv
+from research_vault import ResearchVault
 from sub_agent import SubAgent
-from config import MAX_INVESTIGATE_THREADS, MAX_EVALUATE_ROUNDS
+from config import MAX_INVESTIGATE_THREADS, MAX_EVALUATE_ROUNDS, RESEARCH_DIR
 
 # ---------------------------------------------------------------------------
 # Orchestrator tool definitions (for planner and evaluator LLM calls)
@@ -90,17 +93,37 @@ _EVALUATE_TOOLS = [
 # ---------------------------------------------------------------------------
 
 _PLANNER_PROMPT = """\
-You are a research planner. Given a complex question, decompose it into \
-independent research threads that can be investigated in parallel.
+You are a research director. Decompose the question into a zero-overlap \
+research architecture by first identifying PILLARS, then generating \
+directed queries.
 
-Rules:
-- Each thread should be specific and self-contained
-- Minimize dependencies between threads (maximize parallelism)
-- 3-5 threads is ideal (max {max_threads})
-- Each thread should have a clear, searchable topic
-- Think about what a thorough human researcher would investigate
-- NEVER refuse a question. Your training data may be outdated — the research \
-tools have access to current, real-time information. Always plan the research.
+## Process
+1. IDENTIFY PILLARS: Find 3-{max_threads} distinct dimensions of this topic \
+(e.g., Financial, Technical, Strategic, Historical, Social, Regulatory). \
+Each pillar must be a fundamentally different lens on the problem.
+2. GENERATE THREADS: For each pillar, write one specific research query \
+(15-25 words) that targets concrete data: metrics, dates, comparisons, \
+or named entities.
+
+## Rules
+- NO SYNONYM OVERLAP: If pillar A covers "price", pillar B cannot use \
+"price", "cost", or "valuation"
+- DATA DENSITY: Every thread must demand specific numbers, dates, or \
+named comparisons — not vague summaries
+- 3-5 threads ideal (max {max_threads})
+- NEVER refuse a question. Always plan the research.
+
+## GOOD example for "How is AMD stock doing?":
+Pillars: Financial Performance | Product Technology | Market Sentiment | Partnerships
+- Thread A (Financial): "AMD Q1 2026 quarterly earnings revenue profit margins year-over-year growth"
+- Thread B (Product): "AMD MI300 MI325 AI GPU specs benchmarks vs NVIDIA H100 B200 market share"
+- Thread C (Sentiment): "AMD stock analyst ratings price targets upgrades downgrades 2026"
+- Thread D (Partnerships): "AMD data center wins cloud contracts Microsoft Google Amazon 2025 2026"
+
+## BAD example (pillars overlap — all are "market outlook"):
+- Thread A: "AMD stock price drivers 2026"
+- Thread B: "AMD stock performance 2026"
+- Thread C: "AMD stock predictions 2026"
 
 You MUST call plan_research with your threads. Do not respond with text.\
 """
@@ -112,15 +135,25 @@ Below are summaries from sub-agents, each investigating a different thread.
 
 {summaries_text}
 
-Review each summary and determine:
-1. Is the data sufficient to comprehensively answer the main question?
-2. Are there gaps, missing data points, or vague claims that need specifics?
-3. Do any threads need additional information?
+## Evaluation Process
+1. EXTRACT ENTITIES: List all organizations, products, and metrics mentioned.
+2. CHECK DATA DENSITY: For each thread, does it contain specific numbers, \
+dates, or named comparisons? Vague claims like "significant growth" without \
+a percentage are INCOMPLETE.
+3. DETECT CONFLICTS: If two threads report conflicting data (e.g., different \
+numbers for the same metric), flag this for resolution.
+4. FIND GAPS: What specific data point, if missing, would most weaken the \
+final answer? Is it present in the summaries?
 
-If all threads are sufficiently complete: call mark_complete.
-If there are gaps: call request_follow_ups with specific questions for specific sub-agents.
+## Decision
+- If every thread has at least 2-3 specific data points and no critical \
+gaps remain: call mark_complete.
+- If a thread has only vague claims, or a critical data point is missing: \
+call request_follow_ups with a SPECIFIC question targeting the exact \
+missing data (e.g., "What is the exact revenue figure for Q1 2026?" \
+not "find more information about revenue").
 
-Be rigorous but practical — don't ask for perfection, ask for completeness.\
+Be rigorous but practical — max 2 follow-ups per round.\
 """
 
 _SYNTHESIS_PROMPT = """\
@@ -141,23 +174,40 @@ Reference specific data points from the research. Be thorough but clear.\
 # ---------------------------------------------------------------------------
 
 
-def _normalize_threads(threads: list) -> list[dict]:
+def _normalize_threads(threads) -> list[dict]:
     """Ensure every thread is a dict with 'id' and 'topic' keys.
 
     The LLM sometimes returns strings instead of dicts, or dicts missing
-    the 'id' field. This normalizes all variants into a consistent format.
+    the 'id' field, or a JSON string instead of a list. This normalizes
+    all variants into a consistent format.
     """
+    # If the LLM returned a JSON string instead of a list, parse it
+    if isinstance(threads, str):
+        try:
+            threads = json.loads(threads)
+        except json.JSONDecodeError:
+            # Treat the whole string as a single topic
+            return [{"id": "A", "topic": threads}]
+
+    if not isinstance(threads, list):
+        return [{"id": "A", "topic": str(threads)}]
+
     labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     normalized = []
     for i, t in enumerate(threads):
         label = labels[i] if i < len(labels) else str(i)
-        if isinstance(t, str):
-            normalized.append({"id": label, "topic": t})
-        elif isinstance(t, dict):
+        if isinstance(t, dict):
             normalized.append({
                 "id": t.get("id", label),
                 "topic": t.get("topic", t.get("description", t.get("query", str(t)))),
             })
+        elif isinstance(t, str) and len(t) > 3:
+            # Only treat as a topic if it's a real string, not a single char
+            # from iterating over a JSON string
+            normalized.append({"id": label, "topic": t})
+        elif isinstance(t, str):
+            # Single char = the LLM returned garbage, skip it
+            continue
         else:
             normalized.append({"id": label, "topic": str(t)})
     return normalized
@@ -179,10 +229,12 @@ def _plan_research(question: str) -> list[dict]:
                 args = json.loads(tc.function.arguments)
                 threads = args.get("threads", [])
                 threads = _normalize_threads(threads)
-                return threads[:MAX_INVESTIGATE_THREADS]
+                if threads:
+                    return threads[:MAX_INVESTIGATE_THREADS]
+                print("[orchestrator] Warning: thread normalization produced empty list")
 
-    # Fallback: if LLM didn't use the tool, create a single thread
-    print("[orchestrator] Warning: LLM didn't use plan_research tool, using single thread")
+    # Fallback: if LLM didn't use the tool or threads were malformed
+    print("[orchestrator] Warning: using single thread fallback")
     return [{"id": "A", "topic": question}]
 
 
@@ -218,6 +270,18 @@ def _evaluate_research(question: str, threads: list[dict], summaries: dict[str, 
             elif tc.function.name == "request_follow_ups":
                 args = json.loads(tc.function.arguments)
                 follow_ups = args.get("follow_ups", [])
+                # LLM sometimes returns a string instead of a list of dicts
+                if isinstance(follow_ups, str):
+                    try:
+                        follow_ups = json.loads(follow_ups)
+                    except json.JSONDecodeError:
+                        print(f"[orchestrator] Evaluation: malformed follow_ups, treating as complete")
+                        return {"complete": True}
+                # Filter to only valid dicts with agent_id
+                follow_ups = [fu for fu in follow_ups if isinstance(fu, dict) and "agent_id" in fu]
+                if not follow_ups:
+                    print(f"[orchestrator] Evaluation: no valid follow-ups, treating as complete")
+                    return {"complete": True}
                 print(f"[orchestrator] Evaluation: INCOMPLETE — {len(follow_ups)} follow-up(s)")
                 return {"complete": False, "follow_ups": follow_ups}
 
@@ -237,8 +301,8 @@ def _synthesize(question: str, threads: list[dict], summaries: dict[str, str]) -
     ]
 
     msg = llm.call(messages, max_tokens=4096)
-    raw = msg.content or "[Synthesis failed]"
-    clean, thinking = llm.parse_thinking(raw)
+    clean, thinking = llm.parse_thinking(msg)
+    clean = clean or "[Synthesis failed]"
     if thinking:
         print(f"[orchestrator] Synthesis thinking: {thinking[:150]}...")
     return clean
@@ -261,17 +325,24 @@ def investigate(question: str, depth: str = "quick") -> str:
     """
     t_start = time.time()
 
+    # Create vault for this investigation
+    vault = ResearchVault(topic=question)
+
     # Quick mode: single sub-agent, no planning/evaluation/synthesis
     if depth == "quick":
         print(f"\n[orchestrator] === QUICK INVESTIGATION ===")
         print(f"[orchestrator] Question: {question}")
-        agent = SubAgent(agent_id="Q", topic=question, main_query=question)
+        vault.set_thread_topic("Q", question)
+        agent = SubAgent(agent_id="Q", topic=question, main_query=question, vault=vault)
         try:
             agent.run()
         except Exception as e:
             print(f"[orchestrator] Quick investigation FAILED: {e}")
             import traceback; traceback.print_exc()
             return f"[Investigation failed: {e}]"
+        vault.set_thread_summary("Q", agent.summary)
+        vault.set_synthesis(agent.summary)
+        _persist_vault(vault)
         elapsed = time.time() - t_start
         print(f"\n[orchestrator] Quick investigation complete ({elapsed:.1f}s)")
         return agent.summary
@@ -291,25 +362,46 @@ def investigate(question: str, depth: str = "quick") -> str:
     for t in threads:
         print(f"  {t.get('id', '?')}: {t.get('topic', '?')}")
 
-    # Step 2: DISPATCH sub-agents
-    print(f"\n[orchestrator] === DISPATCH ===")
+    # Step 2: DISPATCH sub-agents (parallel)
+    print(f"\n[orchestrator] === DISPATCH ({len(threads)} threads in parallel) ===")
     agents: dict[str, SubAgent] = {}
-    for t in threads:
-        aid = t.get("id", f"T{len(agents)}")
-        topic = t.get("topic", question)
+    thread_map: dict[str, dict] = {}
+
+    def _run_sub_agent(aid, topic, question, vault):
         print(f"\n[orchestrator] Starting sub-agent {aid}: {topic}")
-        try:
-            agent = SubAgent(agent_id=aid, topic=topic, main_query=question)
-            agent.run()
-            agents[aid] = agent
-            print(f"[orchestrator] Sub-agent {aid} done")
-        except Exception as e:
-            print(f"[orchestrator] Sub-agent {aid} FAILED: {e}")
-            import traceback; traceback.print_exc()
-            # Create a dummy agent with error summary so investigation can continue
-            agent = SubAgent(agent_id=aid, topic=topic, main_query=question)
-            agent.summary = f"[Research failed: {e}]"
-            agents[aid] = agent
+        agent = SubAgent(agent_id=aid, topic=topic, main_query=question, vault=vault)
+        agent.run()
+        return aid, agent
+
+    dispatch_start = time.time()
+    with ThreadPoolExecutor(max_workers=MAX_INVESTIGATE_THREADS) as pool:
+        futures = {}
+        for t in threads:
+            aid = t.get("id", f"T{len(futures)}")
+            topic = t.get("topic", question)
+            vault.set_thread_topic(aid, topic)
+            thread_map[aid] = t
+            future = pool.submit(_run_sub_agent, aid, topic, question, vault)
+            futures[future] = aid
+
+        for future in as_completed(futures):
+            aid = futures[future]
+            try:
+                aid, agent = future.result()
+                agents[aid] = agent
+                vault.set_thread_summary(aid, agent.summary)
+                print(f"[orchestrator] Sub-agent {aid} done")
+            except Exception as e:
+                print(f"[orchestrator] Sub-agent {aid} FAILED: {e}")
+                import traceback; traceback.print_exc()
+                topic = thread_map[aid].get("topic", question)
+                agent = SubAgent(agent_id=aid, topic=topic, main_query=question, vault=vault)
+                agent.summary = f"[Research failed: {e}]"
+                agents[aid] = agent
+                vault.set_thread_summary(aid, agent.summary)
+
+    dispatch_elapsed = time.time() - dispatch_start
+    print(f"[orchestrator] All {len(threads)} sub-agents completed in {dispatch_elapsed:.1f}s")
 
     # Single thread = simple question, skip evaluation and return directly
     if len(threads) == 1:
@@ -357,6 +449,20 @@ def investigate(question: str, depth: str = "quick") -> str:
         parts = [f"Thread {aid}: {s}" for aid, s in final_summaries.items()]
         answer = "Research findings (synthesis failed):\n\n" + "\n\n".join(parts)
 
+    # Persist vault
+    vault.set_synthesis(answer)
+    _persist_vault(vault)
+
     elapsed = time.time() - t_start
     print(f"\n[orchestrator] Investigation complete ({elapsed:.1f}s total)")
     return answer
+
+
+def _persist_vault(vault: ResearchVault):
+    """Save vault to disk and set as current vault for the session."""
+    try:
+        vault.save(RESEARCH_DIR / vault.timestamp)
+        print(f"[orchestrator] Vault saved: {RESEARCH_DIR / vault.timestamp} ({len(vault.entries)} entries)")
+    except Exception as e:
+        print(f"[orchestrator] Warning: vault save failed: {e}")
+    rv.current_vault = vault
