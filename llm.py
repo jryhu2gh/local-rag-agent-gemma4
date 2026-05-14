@@ -17,22 +17,28 @@ _client = OpenAI(base_url=CHAT_BASE_URL, api_key="not-needed")
 _THINK_RE = re.compile(r"<\|channel>(?:thought)?\s*(.*?)\s*<channel\|>", re.DOTALL)
 
 
-def parse_thinking(text: str) -> tuple[str, str | None]:
-    """Separate thinking blocks from visible content.
+def parse_thinking(msg) -> tuple[str, str | None]:
+    """Extract thinking from a message object.
 
-    Handles multiple thinking blocks (matches the template's strip_thinking
-    which iterates over all <|channel>...<channel|> pairs).
+    The server returns thinking in the `reasoning_content` field,
+    separate from `content`. Also falls back to parsing <|channel>
+    blocks from content if reasoning_content is absent.
 
-    Returns (clean_content, concatenated_thinking_or_None).
+    Returns (clean_content, thinking_or_None).
     """
-    if not text:
-        return text, None
-    matches = _THINK_RE.findall(text)
-    if matches:
-        thinking = "\n".join(m.strip() for m in matches if m.strip()) or None
-        clean = _THINK_RE.sub("", text).strip()
-        return clean, thinking
-    return text, None
+    content = msg.content or ""
+    thinking = getattr(msg, "reasoning_content", None)
+    if thinking:
+        thinking = thinking.strip() or None
+        return content, thinking
+    # Fallback: parse <|channel>thought...<channel|> from content
+    if content:
+        matches = _THINK_RE.findall(content)
+        if matches:
+            thinking = "\n".join(m.strip() for m in matches if m.strip()) or None
+            clean = _THINK_RE.sub("", content).strip()
+            return clean, thinking
+    return content, None
 
 
 def call(messages, tools=None, temperature=TEMPERATURE, max_tokens=MAX_TOKENS,

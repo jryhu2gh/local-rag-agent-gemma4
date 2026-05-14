@@ -19,7 +19,7 @@ start_chat() {
         --jinja \
         --chat-template-file "$TEMPLATE" \
         -fa on \
-        -c 8192 \
+        -c 32768 \
         --no-webui &
     echo "Chat server PID: $!"
 }

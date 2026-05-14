@@ -8,6 +8,7 @@ import json
 
 import history
 import llm
+import research_index
 import toolkit
 
 DEFINITION = {
@@ -37,13 +38,16 @@ You are reviewing what is already known about a topic from local sources.
 
 The user's question: {query}
 
-Below are results from past conversations and indexed documents.
+Below are results from past conversations, indexed documents, and current session research.
 
 ## From past conversations:
 {history_section}
 
 ## From indexed documents:
 {documents_section}
+
+## From current session research:
+{research_section}
 
 Provide a brief assessment:
 1. **What I know**: Summarize ONLY facts that DIRECTLY answer the question. Ignore tangentially related results.
@@ -83,13 +87,25 @@ def execute(query: str) -> str:
         documents_section = "(No relevant documents found)"
         print(f"  [reflect] No document matches")
 
-    # If nothing found locally, skip LLM summarization
-    if not history_results and not doc_results:
+    # Tier 3: Search session research index
+    research_results = research_index.search(query)
+    if research_results:
+        research_section = "\n".join(
+            f"- [{r.get('source_file', '?')}] {r.get('text', '')[:200]}"
+            for r in research_results
+        )
+        print(f"  [reflect] Found {len(research_results)} research matches")
+    else:
+        research_section = "(No research data from current session)"
+        print(f"  [reflect] No research matches")
+
+    # If nothing found anywhere, skip LLM summarization
+    if not history_results and not doc_results and not research_results:
         print(f"  [reflect] No local knowledge found")
         return json.dumps({
             "query": query,
             "status": "no_local_knowledge",
-            "summary": "No relevant information found in past conversations or local documents.",
+            "summary": "No relevant information found in past conversations, local documents, or current session research.",
             "recommendation": "Use investigate to search the web for this information.",
         }, indent=2)
 
@@ -100,6 +116,7 @@ def execute(query: str) -> str:
             query=query,
             history_section=history_section,
             documents_section=documents_section,
+            research_section=research_section,
         )},
         {"role": "user", "content": f"What do we know about: {query}"},
     ]
