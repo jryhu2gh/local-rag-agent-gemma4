@@ -70,6 +70,8 @@ def execute(query: str) -> str:
             for r in history_results
         )
         print(f"  [reflect] Found {len(history_results)} history matches")
+        for i, r in enumerate(history_results):
+            print(f"    [{i}] score={r.get('score', '?')} | {r.get('text', '')[:120]}")
     else:
         history_section = "(No relevant past conversations found)"
         print(f"  [reflect] No history matches")
@@ -83,6 +85,8 @@ def execute(query: str) -> str:
             for r in doc_results
         )
         print(f"  [reflect] Found {len(doc_results)} document matches")
+        for i, r in enumerate(doc_results):
+            print(f"    [{i}] score={r.get('score', '?')} src={r.get('source_file', '?')} | {r.get('text', '')[:120]}")
     else:
         documents_section = "(No relevant documents found)"
         print(f"  [reflect] No document matches")
@@ -95,6 +99,8 @@ def execute(query: str) -> str:
             for r in research_results
         )
         print(f"  [reflect] Found {len(research_results)} research matches")
+        for i, r in enumerate(research_results):
+            print(f"    [{i}] score={r.get('score', '?')} src={r.get('source_file', '?')} | {r.get('text', '')[:120]}")
     else:
         research_section = "(No research data from current session)"
         print(f"  [reflect] No research matches")
@@ -124,6 +130,7 @@ def execute(query: str) -> str:
     msg = llm.call(messages, max_tokens=1024)
     summary = msg.content or "[Summarization failed]"
     print(f"  [reflect] Summary ready ({len(summary)} chars)")
+    print(f"  [reflect] LLM response:\n    {summary[:500]}")
 
     # Check if the LLM concluded it can answer the question
     summary_lower = summary.lower()
@@ -137,15 +144,35 @@ def execute(query: str) -> str:
         status = "insufficient"
         recommendation = "Local knowledge is NOT sufficient. You MUST call investigate to search the web for this information. Do NOT answer from local knowledge alone."
 
-    print(f"  [reflect] Status: {status}")
+    print(f"  [reflect] Status: {status} (matched='can the question be answered?: yes' → {can_answer})")
+
+    # Build per-source evidence so the lead agent can attribute properly
+    evidence = {}
+    if history_results:
+        evidence["from_past_conversations"] = [
+            {"timestamp": r.get("timestamp", "?"), "text": r.get("text", "")[:300]}
+            for r in history_results[:3]
+        ]
+    if doc_results:
+        evidence["from_indexed_documents"] = [
+            {"source_file": r.get("source_file", "?"), "text": r.get("text", "")[:300]}
+            for r in doc_results[:3]
+        ]
+    if research_results:
+        evidence["from_session_research"] = [
+            {"source": r.get("source_file", "?"), "text": r.get("text", "")[:300]}
+            for r in research_results[:3]
+        ]
 
     return json.dumps({
         "query": query,
         "status": status,
         "summary": summary,
         "recommendation": recommendation,
+        "evidence": evidence,
         "sources": {
             "history_matches": len(history_results),
             "document_matches": len(doc_results),
+            "research_matches": len(research_results),
         },
     }, indent=2)

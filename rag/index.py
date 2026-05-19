@@ -29,6 +29,21 @@ class VectorIndex:
             self.embeddings = np.vstack([self.embeddings, vecs])
         self.metadata.extend(metadatas)
 
+    def remove_by_doc_id(self, doc_id: str) -> int:
+        """Remove all entries matching doc_id. Returns number removed."""
+        keep = [i for i, m in enumerate(self.metadata) if m.get("doc_id") != doc_id]
+        removed = len(self.metadata) - len(keep)
+        if removed == 0:
+            return 0
+
+        self.metadata = [self.metadata[i] for i in keep]
+        if self.embeddings is not None:
+            if keep:
+                self.embeddings = self.embeddings[keep]
+            else:
+                self.embeddings = None
+        return removed
+
     def search(self, query_embedding: list[float], top_k: int = 5) -> list[dict]:
         """Return top_k most similar chunks with scores."""
         if self.embeddings is None or len(self.metadata) == 0:
