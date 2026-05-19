@@ -36,6 +36,26 @@ class BM25Index:
         total = sum(len(t) for t in self.doc_tokens)
         self.avg_dl = total / len(self.doc_tokens)
 
+    def remove_by_doc_id(self, doc_id: str) -> int:
+        """Remove all entries matching doc_id. Returns number removed."""
+        keep = [i for i, d in enumerate(self.docs) if d.get("doc_id") != doc_id]
+        removed = len(self.docs) - len(keep)
+        if removed == 0:
+            return 0
+
+        self.docs = [self.docs[i] for i in keep]
+        self.doc_tokens = [self.doc_tokens[i] for i in keep]
+
+        # Recompute doc_freqs from scratch
+        self.doc_freqs = {}
+        for tokens in self.doc_tokens:
+            for term in set(tokens):
+                self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
+
+        total = sum(len(t) for t in self.doc_tokens)
+        self.avg_dl = total / len(self.doc_tokens) if self.doc_tokens else 0.0
+        return removed
+
     def search(self, query: str, top_k: int = 5) -> list[dict]:
         """Search for query, return top_k results with scores."""
         query_tokens = _tokenize(query)
